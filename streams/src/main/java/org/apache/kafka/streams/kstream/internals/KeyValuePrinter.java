@@ -18,6 +18,7 @@ package org.apache.kafka.streams.kstream.internals;
 
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.streams.kstream.KeyValueMapper;
 import org.apache.kafka.streams.processor.AbstractProcessor;
 import org.apache.kafka.streams.processor.Processor;
 import org.apache.kafka.streams.processor.ProcessorContext;
@@ -32,12 +33,13 @@ class KeyValuePrinter<K, V> implements ProcessorSupplier<K, V> {
     private Serde<?> keySerde;
     private Serde<?> valueSerde;
     private String streamName;
+    private KeyValueMapper<K,V, String> mapper;
 
-
-    KeyValuePrinter(PrintStream printStream, Serde<?> keySerde, Serde<?> valueSerde, String streamName) {
+    KeyValuePrinter(PrintStream printStream, Serde<?> keySerde, Serde<?> valueSerde, String streamName, KeyValueMapper<K,V, String> mapper) {
         this.keySerde = keySerde;
         this.valueSerde = valueSerde;
         this.streamName = streamName;
+        this.mapper = mapper;
         if (printStream == null) {
             this.printStream = System.out;
         } else {
@@ -46,16 +48,25 @@ class KeyValuePrinter<K, V> implements ProcessorSupplier<K, V> {
     }
 
     KeyValuePrinter(PrintStream printStream, String streamName) {
-        this(printStream, null, null, streamName);
+        this(printStream, null, null, streamName, null);
     }
 
     KeyValuePrinter(Serde<?> keySerde, Serde<?> valueSerde, String streamName) {
-        this(System.out, keySerde, valueSerde, streamName);
+        this(System.out, keySerde, valueSerde, streamName, null);
     }
+
+    KeyValuePrinter(PrintStream printStream, Serde<?> keySerde, Serde<?> valueSerde, String streamName) {
+        this(printStream, keySerde, valueSerde, streamName, null);
+    }
+
+    KeyValuePrinter(Serde<?> keySerde, Serde<?> valueSerde, String streamName, KeyValueMapper<K,V, String> mapper) {
+        this(System.out, keySerde, valueSerde, streamName, mapper);
+    }
+
 
     @Override
     public Processor<K, V> get() {
-        return new KeyValuePrinterProcessor(this.printStream, this.keySerde, this.valueSerde, this.streamName);
+        return new KeyValuePrinterProcessor(this.printStream, this.keySerde, this.valueSerde, this.streamName, this.mapper);
     }
 
 
@@ -65,13 +76,18 @@ class KeyValuePrinter<K, V> implements ProcessorSupplier<K, V> {
         private Serde<?> valueSerde;
         private ProcessorContext processorContext;
         private String streamName;
+        private KeyValueMapper<K,V, String> mapper;
 
-        private KeyValuePrinterProcessor(PrintStream printStream, Serde<?> keySerde, Serde<?> valueSerde, String streamName) {
+
+        private KeyValuePrinterProcessor(PrintStream printStream, Serde<?> keySerde, Serde<?> valueSerde, String streamName, KeyValueMapper<K,V, String> mapper) {
             this.printStream = printStream;
             this.keySerde = keySerde;
             this.valueSerde = valueSerde;
             this.streamName = streamName;
+            this.mapper = mapper;
         }
+
+        KeyValuePrinterProcessor(PrintStream printStream, Serde<?> keySerde, Serde<?> valueSerde, String streamName) { this(printStream, keySerde, valueSerde, streamName, null); };
 
         @Override
         public void init(ProcessorContext context) {
@@ -91,7 +107,12 @@ class KeyValuePrinter<K, V> implements ProcessorSupplier<K, V> {
             K keyToPrint = (K) maybeDeserialize(key, keySerde.deserializer());
             V valueToPrint = (V) maybeDeserialize(value, valueSerde.deserializer());
 
-            printStream.println("[" + this.streamName + "]: " + keyToPrint + " , " + valueToPrint);
+            if(this.mapper == null) {
+                printStream.println("[" + this.streamName + "]: " + keyToPrint + " , " + valueToPrint);
+            } else {
+                printStream.println("[" + this.streamName + "]: " + mapper.apply(keyToPrint, valueToPrint));
+            }
+
 
             this.processorContext.forward(key, value);
         }
